@@ -1,56 +1,102 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import random
 
-# Title
-st.title("Interactive Urban Forest Explorer")
+# --- Interactive Urban Forest Explorer with Secret Pin ---
+
+# Page configuration
+st.set_page_config(
+    page_title="Fun Urban Forest Explorer",
+    page_icon="🌳",
+    layout="centered",
+)
+
+# Header
+st.title("🌳 Fun Urban Forest Explorer 🌳")
+st.markdown("Welcome! Explore Melbourne's urban trees with interactive filters and a secret surprise! 🎉")
 
 # Load data
+@st.cache_data
 def load_data(path="trees-with-species-and-dimensions-urban-forest.xlsx"):
-    df = pd.read_excel(path, sheet_name='Feuil1')
-    return df
+    return pd.read_excel(path, sheet_name='Feuil1')
 
 data = load_data()
 
-# Sidebar filters
-st.sidebar.header("Filters")
-species_list = data['Common Name'].unique().tolist()
-selected = st.sidebar.multiselect("Select species to include:", species_list, default=species_list[:5])
+# Secret Pin Section
+with st.sidebar.expander("🔒 Enter Secret Pin", expanded=False):
+    pin_input = st.text_input("Type the secret code and press Enter:")
+    if pin_input == "7477":
+        st.success("✨ Thank you for entering the secret pin! Good luck for being cool! ✨")
+    elif pin_input:
+        st.error("❌ Incorrect code. Try again!")
 
-# Filter data
-filtered = data[data['Common Name'].isin(selected)]
+# Sidebar - Filters & Options
+st.sidebar.header("Filter Your View")
+species_choices = data['Common Name'].unique().tolist()
+selected_species = st.sidebar.multiselect(
+    "Select tree species:", species_choices, default=species_choices[:5]
+)
 
-# Options
-st.sidebar.markdown("---")
-show_percent = st.sidebar.checkbox("Show percentage labels", value=True)
+year_min, year_max = st.sidebar.slider(
+    "Filter by planting year range:",
+    int(data['Year Planted'].min()), int(data['Year Planted'].max()),
+    (2000, 2020)
+)
+
+show_percent = st.sidebar.checkbox("Show percentages on bars", value=True)
+
+# Apply filters
+filtered = data[
+    data['Common Name'].isin(selected_species) &
+    data['Year Planted'].between(year_min, year_max)
+]
+
+# Summary stats
+total_visible = len(filtered)
+st.subheader(f"Displaying {total_visible} tree records")
 
 # Compute counts and percentages
 counts = filtered['Common Name'].value_counts().reset_index()
 counts.columns = ['Common Name', 'Count']
-counts['Percent'] = (counts['Count'] / data.shape[0] * 100).round(1)
+counts['Percent'] = (counts['Count'] / len(data) * 100).round(1)
 
-# Main chart
-st.header("Top Tree Species Distribution")
-if show_percent:
-    fig = px.bar(counts, x='Common Name', y='Count', text='Percent',
-                 labels={'Count':'Number of Trees', 'Common Name':'Tree Species'},
-                 title="Interactive Bar Chart of Tree Species")
-    fig.update_traces(texttemplate='%{text}%')
+# Fun random color picker for bars
+def random_color():
+    return 'rgb({}, {}, {})'.format(random.randint(50,200), random.randint(100,255), random.randint(50,200))
+colors = [random_color() for _ in range(len(counts))]
+
+# Plot
+st.subheader("📊 Top Species Chart")
+if not counts.empty:
+    if show_percent:
+        fig = px.bar(
+            counts, x='Common Name', y='Count', text='Percent',
+            labels={'Count':'Number of Trees', 'Common Name':'Tree Species'},
+            title="Tree Species Distribution"
+        )
+        fig.update_traces(marker_color=colors, texttemplate='%{text}%')
+    else:
+        fig = px.bar(
+            counts, x='Common Name', y='Count',
+            labels={'Count':'Number of Trees', 'Common Name':'Tree Species'},
+            title="Tree Species Distribution"
+        )
+        fig.update_traces(marker_color=colors)
+    st.plotly_chart(fig, use_container_width=True)
 else:
-    fig = px.bar(counts, x='Common Name', y='Count',
-                 labels={'Count':'Number of Trees', 'Common Name':'Tree Species'},
-                 title="Interactive Bar Chart of Tree Species")
-st.plotly_chart(fig, use_container_width=True)
+    st.warning("No data matches your filters. Try broadening your selections.")
 
-# Data table
-st.header("Data Preview")
-st.dataframe(filtered.head(20))
+# Data preview
+st.subheader("🔍 Sample Data Preview")
+st.dataframe(filtered.sample(min(10, total_visible)))
 
-# Export
+# Download option
 st.markdown("---")
-if st.button("Download filtered data as CSV"):
-    csv = filtered.to_csv(index=False)
-    st.download_button(label="Download CSV", data=csv, file_name="filtered_trees.csv", mime="text/csv")
+if st.button("Download filtered data as CSV 📥"):
+    csv_data = filtered.to_csv(index=False)
+    st.download_button("Click to download CSV", csv_data, file_name="filtered_trees.csv")
 
-st.markdown("\n---\n*Built with Streamlit & Plotly* 🏞️")
+# Footer
+st.markdown("---")
+st.caption("*Built with ❤️ using Streamlit & Plotly* 🌿")
