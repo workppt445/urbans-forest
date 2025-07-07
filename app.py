@@ -3,100 +3,117 @@ import pandas as pd
 import plotly.express as px
 import random
 
-# --- Interactive Urban Forest Explorer with Secret Pin ---
+# --- Fun Urban Forest Explorer with Dynamic Checklist & Secret Pin V2 ---
 
-# Page configuration
-st.set_page_config(
-    page_title="Fun Urban Forest Explorer",
-    page_icon="🌳",
-    layout="centered",
-)
+# Page config
+st.set_page_config(page_title="Fun Urban Forest Explorer 2.0", page_icon="🌳", layout="centered")
 
 # Header
-st.title("🌳 Fun Urban Forest Explorer 🌳")
-st.markdown("Welcome! Explore Melbourne's urban trees with interactive filters and a secret surprise! 🎉")
+st.title("🌳 Fun Urban Forest Explorer 2.0 🌳")
+st.markdown("Explore Melbourne's trees with dynamic filters, secret secrets, and your own custom checklist! 🎉")
 
 # Load data
-@st.cache_data
 def load_data(path="trees-with-species-and-dimensions-urban-forest.xlsx"):
     return pd.read_excel(path, sheet_name='Feuil1')
 
-data = load_data()
+@st.cache_data
+def get_data():
+    return load_data()
 
-# Secret Pin Section
+data = get_data()
+
+# Initialize session state for custom species list
+if 'custom_species' not in st.session_state:
+    st.session_state.custom_species = []
+
+# Secret Pin
 with st.sidebar.expander("🔒 Enter Secret Pin", expanded=False):
-    pin_input = st.text_input("Type the secret code and press Enter:")
-    if pin_input == "7477":
-        st.success("✨ Thank you for entering the secret pin! Good luck for being cool! ✨")
-    elif pin_input:
-        st.error("❌ Incorrect code. Try again!")
+    pin = st.text_input("Enter the secret code:", key='pin_input')
+    if pin:
+        if pin == "7477":
+            st.balloons()
+            st.success("✨ Secret unlocked! You rock! ✨")
+        else:
+            st.error("❌ Wrong code, try again.")
 
-# Sidebar - Filters & Options
-st.sidebar.header("Filter Your View")
-species_choices = data['Common Name'].unique().tolist()
-selected_species = st.sidebar.multiselect(
-    "Select tree species:", species_choices, default=species_choices[:5]
-)
+# Sidebar fun options
+st.sidebar.header("🎛️ Controls & Filters")
+# Input to add custom species
+species_input = st.sidebar.text_input("Type a tree species to add:", key='species_text')
+if st.sidebar.button("➕ Add to checklist"):
+    if species_input and species_input not in st.session_state.custom_species:
+        st.session_state.custom_species.append(species_input)
 
+# Year planted slider
 year_min, year_max = st.sidebar.slider(
-    "Filter by planting year range:",
+    "Planting Year Range:",
     int(data['Year Planted'].min()), int(data['Year Planted'].max()),
     (2000, 2020)
 )
-
+# Toggle percent labels
 show_percent = st.sidebar.checkbox("Show percentages on bars", value=True)
+# Random fun fact generator
+if st.sidebar.button("🎲 Surprise me!"):
+    fact = random.choice([
+        "Melbourne has over 70,000 street trees!",
+        "The oldest recorded tree in Melbourne is over 150 years old.",
+        "Native species like River red gum can live over 200 years.",
+        "London Plane trees were introduced in the 19th century."
+    ])
+    st.sidebar.info(f"💡 {fact}")
 
-# Apply filters
-filtered = data[
-    data['Common Name'].isin(selected_species) &
-    data['Year Planted'].between(year_min, year_max)
-]
+# Filter data by year and built-in species selection + custom list
+def filter_data():
+    df = data[data['Year Planted'].between(year_min, year_max)]
+    # If custom species exist, filter to those only
+    if st.session_state.custom_species:
+        df = df[df['Common Name'].isin(st.session_state.custom_species)]
+    return df
 
-# Summary stats
-total_visible = len(filtered)
-st.subheader(f"Displaying {total_visible} tree records")
+filtered = filter_data()
+
+# Display record count
+st.subheader(f"📋 Showing {len(filtered)} trees")
 
 # Compute counts and percentages
 counts = filtered['Common Name'].value_counts().reset_index()
 counts.columns = ['Common Name', 'Count']
 counts['Percent'] = (counts['Count'] / len(data) * 100).round(1)
 
-# Fun random color picker for bars
+# Random bar colors
 def random_color():
-    return 'rgb({}, {}, {})'.format(random.randint(50,200), random.randint(100,255), random.randint(50,200))
+    return f"rgb({random.randint(50,200)},{random.randint(50,255)},{random.randint(50,200)})"
 colors = [random_color() for _ in range(len(counts))]
 
-# Plot
-st.subheader("📊 Top Species Chart")
+# Plot chart
+st.subheader("📊 Your Custom Species Chart")
 if not counts.empty:
-    if show_percent:
-        fig = px.bar(
-            counts, x='Common Name', y='Count', text='Percent',
-            labels={'Count':'Number of Trees', 'Common Name':'Tree Species'},
-            title="Tree Species Distribution"
-        )
-        fig.update_traces(marker_color=colors, texttemplate='%{text}%')
-    else:
-        fig = px.bar(
-            counts, x='Common Name', y='Count',
-            labels={'Count':'Number of Trees', 'Common Name':'Tree Species'},
-            title="Tree Species Distribution"
-        )
-        fig.update_traces(marker_color=colors)
+    fig = px.bar(
+        counts, x='Common Name', y='Count', text='Percent' if show_percent else None,
+        labels={'Count':'# Trees', 'Common Name':'Species'}, title="Tree Species Distribution"
+    )
+    fig.update_traces(marker_color=colors, texttemplate='%{text}%')
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.warning("No data matches your filters. Try broadening your selections.")
+    st.warning("No data matches your filters or your custom list!")
 
-# Data preview
-st.subheader("🔍 Sample Data Preview")
-st.dataframe(filtered.sample(min(10, total_visible)))
+# Checklist display
+st.subheader("📝 Your Species Checklist")
+if st.session_state.custom_species:
+    for name in st.session_state.custom_species:
+        st.markdown(f"- ✅ {name}")
+else:
+    st.info("Add species above to build your checklist!")
 
-# Download option
-st.markdown("---")
-if st.button("Download filtered data as CSV 📥"):
-    csv_data = filtered.to_csv(index=False)
-    st.download_button("Click to download CSV", csv_data, file_name="filtered_trees.csv")
+# Data sample
+st.subheader("🔍 Sample Data")
+st.dataframe(filtered.sample(min(10, len(filtered))))
+
+# Download button
+if st.button("📥 Download filtered data CSV"):
+    csv = filtered.to_csv(index=False)
+    st.download_button("Download CSV", csv, "my_trees.csv")
 
 # Footer
 st.markdown("---")
-st.caption("*Built with ❤️ using Streamlit & Plotly* 🌿")
+st.caption("*Built with Streamlit & Plotly – now with secrets & checklists!* 🌿")
