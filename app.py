@@ -18,11 +18,11 @@ import json, os
 st.set_page_config(page_title="Melbourne House Price Explorer", layout="wide", initial_sidebar_state="expanded")
 
 # Load datasets
-DATA_DIR = "data"
+
 
 def load_data():
-    prices_path = os.path.join(DATA_DIR, "house-prices-by-small-area-sale-year.csv")
-    dwell_path = os.path.join(DATA_DIR, "city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv")
+    prices_path = "house-prices-by-small-area-sale-year.csv"
+    dwell_path = "city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv"
     try:
         prices = pd.read_csv(prices_path).rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
     except FileNotFoundError:
