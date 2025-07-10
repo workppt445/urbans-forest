@@ -13,126 +13,85 @@ from io import BytesIO
 
 st.set_page_config(page_title="Melbourne House Price Explorer", layout="wide", initial_sidebar_state="expanded")
 
-SECRET_CODE, EDITOR_STATE_FILE, CONTENT_FILE = "7477", "editor_state.json", "editable_content.md"
-MAX_FUTURE_YEARS = 5
-
-if 'live_editor' not in st.session_state: st.session_state.live_editor=False
-if 'homepage_md' not in st.session_state: st.session_state.homepage_md = "# 🏡 Melbourne House Price Explorer\nExplore historical and forecasted house prices."
-if 'favorites' not in st.session_state: st.session_state.favorites=[]
-
-def load_editor_state():
-    if os.path.exists(EDITOR_STATE_FILE):
-        try: return json.load(open(EDITOR_STATE_FILE))
-        except: pass
-    return {'live_editor':False}
-
-def save_editor_state(state):
-    json.dump(state, open(EDITOR_STATE_FILE,'w'))
-
-editor_state = load_editor_state()
-st.sidebar.title("🔐 Dev Mode")
-code_input = st.sidebar.text_input("Secret code:", type="password")
-if code_input==SECRET_CODE:
-    editor_state['live_editor']=not editor_state['live_editor']
-    save_editor_state(editor_state)
-    try: st.experimental_rerun()
-    except: pass
-if editor_state['live_editor']:
-    st.sidebar.success("Dev Mode Active")
-    txt = st.sidebar.text_area("Edit Home:", st.session_state.homepage_md, height=200)
-    if st.sidebar.button("Save Home"): st.session_state.homepage_md=txt; open(CONTENT_FILE,'w').write(txt)
-
-if editor_state['live_editor'] and os.path.exists(CONTENT_FILE): st.markdown(open(CONTENT_FILE).read(), unsafe_allow_html=True)
-else: st.markdown(st.session_state.homepage_md, unsafe_allow_html=True)
-st.markdown("---")
-
-theme = st.sidebar.selectbox("Theme:", ["Light","Dark"])
-bg,fg = ("#FFF","#000") if theme=="Light" else ("#121212","#EEE")
-st.markdown(f"<style>body{{background:{bg};color:{fg}}}</style>",unsafe_allow_html=True)
-
-pages = ["Map & Trends","Heatmap","Comparison","Data Table","Favorites","About"]
-page = st.sidebar.radio("Go to:", pages)
-
-@st.cache_data
+# Load datasets
 def load_data():
-    df = pd.read_csv("house-prices-by-small-area-sale-year.csv").rename(columns=lambda c:c.strip().lower().replace(' ','_'))
-    if 'type' in df: df=df.rename(columns={'type':'property_type'})
-    df['latitude']=df.get('latitude',-37.8136); df['longitude']=df.get('longitude',144.9631)
-    dwell = pd.read_csv("city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv").rename(columns=lambda c:c.strip().lower().replace(' ','_'))
-    if 'geography' in dwell: dwell=dwell.rename(columns={'geography':'small_area'})
-    for old,new in [('category','dwelling_type'),('households','dwelling_number')]:
-        if old in dwell: dwell=dwell.rename(columns={old:new})
-    return df,dwell
+    prices = pd.read_csv("house-prices-by-small-area-sale-year.csv").rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
+    dwell = pd.read_csv("city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv").rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
+    if 'type' in prices.columns:
+        prices = prices.rename(columns={'type':'property_type'})
+    prices['latitude'] = prices.get('latitude', -37.8136)
+    prices['longitude'] = prices.get('longitude', 144.9631)
+    if 'geography' in dwell.columns:
+        dwell = dwell.rename(columns={'geography':'small_area'})
+    dwell = dwell.rename(columns={k:v for k,v in [('category','dwelling_type'),('households','dwelling_number')] if k in dwell.columns})
+    return prices, dwell
 
-with st.spinner("Loading data..."):
-    prices_df,dwell_df=load_data()
-mid = (prices_df.latitude.mean(),prices_df.longitude.mean())
+prices_df, dwell_df = load_data()
 
-if page=="Map & Trends":
-    st.header("📍 Map & Trends")
-    viz = st.sidebar.selectbox("Map Style",["Scatter","Hexagon","Cluster"])
-    view = pdk.ViewState(latitude=mid[0],longitude=mid[1],zoom=11)
-    if viz=="Scatter": layer=pdk.Layer("ScatterplotLayer",prices_df,get_position='[longitude,latitude]',get_fill_color='[0,120,255,180]',get_radius=150,pickable=True)
-    elif viz=="Hexagon": layer=pdk.Layer("HexagonLayer",prices_df,get_position='[longitude,latitude]',radius=300,elevation_scale=50,extruded=True,pickable=True)
-    else: layer=pdk.Layer("ScatterplotLayer",prices_df,get_position='[longitude,latitude]',get_fill_color='[200,30,0,160]',get_radius=100,pickable=True)
-    tip="{small_area}\nYear: {sale_year}\nPrice: ${median_price:,.0f}"
-    st.pydeck_chart(pdk.Deck(layers=[layer],initial_view_state=view,tooltip={"text":tip}))
-    st.subheader("Filters & Chart")
-    a=st.selectbox("Suburb",sorted(prices_df.small_area.dropna().unique()))
-    t=st.selectbox("Type",sorted(prices_df.property_type.dropna().unique()))
-    yrs=st.slider("Years",int(prices_df.sale_year.min()),int(prices_df.sale_year.max()),(int(prices_df.sale_year.min()),int(prices_df.sale_year.max())))
-    style=st.radio("Chart",["Line","Bar","Area"])
-    sub=prices_df.query("small_area==@a and property_type==@t and sale_year>=@yrs[0] and sale_year<=@yrs[1]")
-    if sub.empty: st.warning("No data.")
+def get_midpoint(df):
+    return df['latitude'].mean(), df['longitude'].mean()
+mid_lat, mid_lon = get_midpoint(prices_df)
+
+# Sidebar filters
+st.sidebar.header("Data Filters")
+suburbs = sorted(prices_df['small_area'].dropna().unique())
+prop_types = sorted(prices_df['property_type'].dropna().unique())
+selected_suburbs = st.sidebar.multiselect("Suburb", suburbs, default=suburbs[:5])
+selected_types = st.sidebar.multiselect("Property Type", prop_types, default=prop_types[:2])
+year_min, year_max = st.sidebar.slider(
+    "Sale Year Range", int(prices_df['sale_year'].min()), int(prices_df['sale_year'].max()),
+    (int(prices_df['sale_year'].min()), int(prices_df['sale_year'].max()))
+)
+
+# Apply filters
+filtered = prices_df[
+    prices_df['small_area'].isin(selected_suburbs) &
+    prices_df['property_type'].isin(selected_types) &
+    prices_df['sale_year'].between(year_min, year_max)
+].reset_index(drop=True)
+
+# Tabs for sections
+tab1, tab2, tab3, tab4 = st.tabs(["Overview","Map & Trends","Heatmap","Data Table"])
+
+with tab1:
+    total = len(filtered)
+    unique_suburbs = filtered['small_area'].nunique()
+    avg_price = filtered['median_price'].mean() if total else 0
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Filtered Records", total)
+    c2.metric("Unique Suburbs", unique_suburbs)
+    c3.metric("Average Price", f"${avg_price:,.0f}")
+
+with tab2:
+    st.subheader("📊 Price Trends by Suburb and Type")
+    sub = st.selectbox("Select Suburb", sorted(filtered['small_area'].unique()))
+    ptype = st.selectbox("Select Property Type", sorted(filtered['property_type'].unique()))
+    df_st = filtered[(filtered['small_area']==sub) & (filtered['property_type']==ptype)]
+    if not df_st.empty:
+        chart_type = st.radio("Chart Type", ["Line","Bar","Area"], horizontal=True)
+        base = alt.Chart(df_st).encode(x='sale_year:O', y='median_price:Q')
+        chart = base.mark_line(point=True) if chart_type=='Line' else base.mark_bar() if chart_type=='Bar' else base.mark_area(opacity=0.5)
+        st.altair_chart(chart.properties(width=700,height=350), use_container_width=True)
     else:
-        mix=dwell_df.query("small_area==@a").groupby('dwelling_type').dwelling_number.sum().reset_index()
-        if not mix.empty: st.altair_chart(alt.Chart(mix).mark_arc().encode(theta='dwelling_number:Q',color='dwelling_type:N'))
-        base=alt.Chart(sub).encode(x='sale_year:O',y='median_price:Q')
-        hist=base.mark_line(point=True) if style=='Line' else base.mark_bar() if style=='Bar' else base.mark_area(opacity=0.5)
-        model=LinearRegression().fit(sub[['sale_year']],sub.median_price)
-        fy=np.arange(sub.sale_year.max()+1,sub.sale_year.max()+1+MAX_FUTURE_YEARS)
-        p=model.predict(fy.reshape(-1,1))
-        df_f=pd.DataFrame({'sale_year':fy,'median_price':p})
-        sigma=np.std(sub.median_price-model.predict(sub[['sale_year']]))
-        band=alt.Chart(df_f).mark_area(opacity=0.2,color='orange').encode(x='sale_year:O',y='median_price:Q')
-        line=alt.Chart(df_f).mark_line(color='orange').encode(x='sale_year:O',y='median_price:Q')
-        st.altair_chart((hist+line+band).interactive().properties(width=700,height=350))
-        rmse=np.sqrt(mean_squared_error(sub.median_price,model.predict(sub[['sale_year']])))
-        st.metric("RMSE",f"${rmse:,.0f}")
+        st.warning("No data for selection.")
 
-elif page=="Heatmap":
-    st.header("🌡️ Heatmap")
-    m=folium.Map(location=mid,zoom_start=11)
-    d=prices_df[['latitude','longitude','median_price']].dropna()
-    d['i']=(d.median_price-d.median_price.min())/(d.median_price.max()-d.median_price.min())
-    HeatMap(d[['latitude','longitude','i']].values.tolist(),radius=15).add_to(m)
-    st_folium(m)
+with tab3:
+    st.subheader("📍 Price Heatmap")
+    m = folium.Map(location=[mid_lat, mid_lon], zoom_start=12)
+    hdata = filtered[['latitude','longitude','median_price']].dropna()
+    hdata['intensity'] = (hdata['median_price'] - hdata['median_price'].min()) / (hdata['median_price'].max() - hdata['median_price'].min())
+    HeatMap(hdata[['latitude','longitude','intensity']].values.tolist(), radius=15).add_to(m)
+    st_folium(m, width=700, height=500)
 
-elif page=="Comparison":
-    st.header("🔍 Comparison")
-    c1,c2=st.columns(2)
-    with c1: s1=st.selectbox("Suburb 1",sorted(prices_df.small_area.dropna().unique()),key='c1')
-    with c2: s2=st.selectbox("Suburb 2",sorted(prices_df.small_area.dropna().unique()),index=1,key='c2')
-    df1=prices_df[prices_df.small_area==s1].copy(); df2=prices_df[prices_df.small_area==s2].copy()
-    df1['Sub']=s1; df2['Sub']=s2
-    comp=pd.concat([df1,df2])
-    ch=alt.Chart(comp).mark_line().encode(x='sale_year:O',y='median_price:Q',color='Sub:N',tooltip=['sale_year','median_price'])
-    st.altair_chart(ch.properties(width=800,height=400).interactive(),use_container_width=True)
-
-elif page=="Data Table":
-    st.header("📋 Full Data Table")
-    st.data_editor(prices_df, num_rows="dynamic", use_container_width=True)
-    csv=prices_df.to_csv(index=False).encode('utf-8')
-    st.download_button("Download CSV",csv,"all_prices.csv",mime='text/csv')
-
-elif page=="Favorites":
-    st.header("⭐ Favorites")
-    for f in st.session_state.favorites: st.write(f)
-    if st.button("Clear Favorites"): st.session_state.favorites=[]
-
-else:
-    st.header("ℹ️ About")
-    st.write("City of Melbourne open-data dashboard.")
+with tab4:
+    st.subheader("📋 Interactive Data Table")
+    edited = st.data_editor(
+        filtered,
+        num_rows="dynamic",
+        use_container_width=True
+    )
+    csv = filtered.to_csv(index=False).encode('utf-8')
+    st.download_button("Download CSV", csv, "filtered_house_prices.csv", mime='text/csv')
 
 st.markdown("---")
-st.write("*Data source: City of Melbourne.*")
+st.write("*Data source: City of Melbourne Open Data Portal*.")
