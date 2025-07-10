@@ -45,6 +45,9 @@ def load_data():
     return prices, dwell
 
 prices_df, dwell_df = load_data()
+if prices_df.empty:
+    st.error("Failed to load price data. Please ensure CSV files are placed in the 'data/' directory.")
+    st.stop()
 
 # Sidebar filters
 st.sidebar.header("Data Filters")
