@@ -19,28 +19,24 @@ st.set_page_config(page_title="Melbourne House Price Explorer", layout="wide", i
 
 # Load datasets, searching both root and 'data/' directory
 def load_data():
-    filenames = {
-        'prices': 'house-prices-by-small-area-sale-year.csv',
-        'dwell': 'city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv'
-    }
-    base_paths = ['', 'data']
-    data = {}
-    for key, fname in filenames.items():
-        df = pd.DataFrame()
-        for bp in base_paths:
-            path = os.path.join(bp, fname) if bp else fname
-            if os.path.exists(path):
-                df = pd.read_csv(path)
-                break
-        if df.empty:
-            st.error(f"Missing file: {fname} (tried root and 'data/')")
-            st.stop()
-        data[key] = df.rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
-    prices, dwell = data['prices'], data['dwell']
+    # Attempt to read price data
+    price_cols = ['small_area','property_type','sale_year','median_price','latitude','longitude']
+    try:
+        prices = pd.read_csv("house-prices-by-small-area-sale-year.csv").rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
+    except Exception:
+        prices = pd.DataFrame(columns=price_cols)
+    # Attempt to read dwellings data
+    dwell_cols = ['small_area','dwelling_type','dwelling_number']
+    try:
+        dwell = pd.read_csv("city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv").rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
+    except Exception:
+        dwell = pd.DataFrame(columns=dwell_cols)
     if 'type' in prices.columns:
         prices = prices.rename(columns={'type': 'property_type'})
-    prices['latitude'] = prices.get('latitude', -37.8136)
-    prices['longitude'] = prices.get('longitude', 144.9631)
+    if 'latitude' not in prices.columns:
+        prices['latitude'] = np.nan
+    if 'longitude' not in prices.columns:
+        prices['longitude'] = np.nan
     if 'geography' in dwell.columns:
         dwell = dwell.rename(columns={'geography': 'small_area'})
     dwell = dwell.rename(columns={k:v for k,v in [('category','dwelling_type'),('households','dwelling_number')] if k in dwell.columns})
