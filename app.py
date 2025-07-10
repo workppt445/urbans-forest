@@ -13,41 +13,40 @@ try:
 except ImportError:
     FOLIUM_AVAILABLE = False
 
-import json, os
+import os
 
 st.set_page_config(page_title="Melbourne House Price Explorer", layout="wide", initial_sidebar_state="expanded")
 
-# Load datasets
-
-
+# Load datasets, searching both root and 'data/' directory
 def load_data():
-    prices_path = "house-prices-by-small-area-sale-year.csv"
-    dwell_path = "city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv"
-    try:
-        prices = pd.read_csv(prices_path).rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
-    except FileNotFoundError:
-        st.error(f"Price data file not found: {prices_path}")
-        return pd.DataFrame(), pd.DataFrame()
-    try:
-        dwell = pd.read_csv(dwell_path).rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
-    except FileNotFoundError:
-        st.error(f"Dwellings data file not found: {dwell_path}")
-        dwell = pd.DataFrame()
+    filenames = {
+        'prices': 'house-prices-by-small-area-sale-year.csv',
+        'dwell': 'city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv'
+    }
+    base_paths = ['', 'data']
+    data = {}
+    for key, fname in filenames.items():
+        df = pd.DataFrame()
+        for bp in base_paths:
+            path = os.path.join(bp, fname) if bp else fname
+            if os.path.exists(path):
+                df = pd.read_csv(path)
+                break
+        if df.empty:
+            st.error(f"Missing file: {fname} (tried root and 'data/')")
+            st.stop()
+        data[key] = df.rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
+    prices, dwell = data['prices'], data['dwell']
     if 'type' in prices.columns:
         prices = prices.rename(columns={'type': 'property_type'})
     prices['latitude'] = prices.get('latitude', -37.8136)
     prices['longitude'] = prices.get('longitude', 144.9631)
     if 'geography' in dwell.columns:
         dwell = dwell.rename(columns={'geography': 'small_area'})
-    dwell = dwell.rename(
-        columns={k: v for k, v in [('category', 'dwelling_type'), ('households', 'dwelling_number')] if k in dwell.columns}
-    )
+    dwell = dwell.rename(columns={k:v for k,v in [('category','dwelling_type'),('households','dwelling_number')] if k in dwell.columns})
     return prices, dwell
 
 prices_df, dwell_df = load_data()
-if prices_df.empty:
-    st.error("Failed to load price data. Please ensure CSV files are placed in the 'data/' directory.")
-    st.stop()
 
 # Sidebar filters
 st.sidebar.header("Data Filters")
@@ -55,7 +54,7 @@ suburbs = sorted(prices_df['small_area'].dropna().unique())
 prop_types = sorted(prices_df['property_type'].dropna().unique())
 selected_suburbs = st.sidebar.multiselect("Suburb", suburbs, default=suburbs[:5])
 selected_types = st.sidebar.multiselect("Property Type", prop_types, default=prop_types[:2])
-year_min, year_max = st.sidebar.slider(
+y_min, y_max = st.sidebar.slider(
     "Sale Year Range",
     int(prices_df['sale_year'].min()),
     int(prices_df['sale_year'].max()),
@@ -66,7 +65,7 @@ year_min, year_max = st.sidebar.slider(
 df = prices_df[
     prices_df['small_area'].isin(selected_suburbs) &
     prices_df['property_type'].isin(selected_types) &
-    prices_df['sale_year'].between(year_min, year_max)
+    prices_df['sale_year'].between(y_min, y_max)
 ].reset_index(drop=True)
 
 # Tabs
@@ -111,19 +110,16 @@ with tab3:
     if not FOLIUM_AVAILABLE:
         st.error("Folium not installed; heatmap unavailable.")
     else:
-        midpoint = (
-            df['latitude'].mean(),
-            df['longitude'].mean()
-        )
+        midpoint = (df['latitude'].mean(), df['longitude'].mean())
         m = folium.Map(location=midpoint, zoom_start=12)
         hdata = df[['latitude', 'longitude', 'median_price']].dropna()
-        hdata['i'] = (
+        hdata['intensity'] = (
             hdata['median_price'] - hdata['median_price'].min()
         ) / (
             hdata['median_price'].max() - hdata['median_price'].min()
         )
         HeatMap(
-            hdata[['latitude', 'longitude', 'i']].values.tolist(), radius=15
+            hdata[['latitude', 'longitude', 'intensity']].values.tolist(), radius=15
         ).add_to(m)
         st_folium(m, width=700, height=500)
 
