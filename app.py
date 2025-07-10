@@ -3,9 +3,16 @@ import pandas as pd
 import numpy as np
 import pydeck as pdk
 import altair as alt
-import folium
-from folium.plugins import HeatMap
-from streamlit_folium import st_folium
+
+# Optional imports
+try:
+    import folium
+    from folium.plugins import HeatMap
+    from streamlit_folium import st_folium
+    FOLIUM_AVAILABLE = True
+except ImportError:
+    FOLIUM_AVAILABLE = False
+
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 import json, os, base64
@@ -28,10 +35,6 @@ def load_data():
 
 prices_df, dwell_df = load_data()
 
-def get_midpoint(df):
-    return df['latitude'].mean(), df['longitude'].mean()
-mid_lat, mid_lon = get_midpoint(prices_df)
-
 # Sidebar filters
 st.sidebar.header("Data Filters")
 suburbs = sorted(prices_df['small_area'].dropna().unique())
@@ -44,55 +47,54 @@ year_min, year_max = st.sidebar.slider(
 )
 
 # Apply filters
-filtered = prices_df[
+df = prices_df[
     prices_df['small_area'].isin(selected_suburbs) &
     prices_df['property_type'].isin(selected_types) &
     prices_df['sale_year'].between(year_min, year_max)
 ].reset_index(drop=True)
 
-# Tabs for sections
+# Tabs
 tab1, tab2, tab3, tab4 = st.tabs(["Overview","Map & Trends","Heatmap","Data Table"])
 
 with tab1:
-    total = len(filtered)
-    unique_suburbs = filtered['small_area'].nunique()
-    avg_price = filtered['median_price'].mean() if total else 0
+    total = len(df)
+    unique_suburbs = df['small_area'].nunique()
+    avg_price = df['median_price'].mean() if total else 0
     c1, c2, c3 = st.columns(3)
     c1.metric("Filtered Records", total)
     c2.metric("Unique Suburbs", unique_suburbs)
     c3.metric("Average Price", f"${avg_price:,.0f}")
 
 with tab2:
-    st.subheader("📊 Price Trends by Suburb and Type")
-    sub = st.selectbox("Select Suburb", sorted(filtered['small_area'].unique()))
-    ptype = st.selectbox("Select Property Type", sorted(filtered['property_type'].unique()))
-    df_st = filtered[(filtered['small_area']==sub) & (filtered['property_type']==ptype)]
+    st.subheader("📊 Price Trends")
+    sub = st.selectbox("Suburb", sorted(df['small_area'].unique()))
+    ptype = st.selectbox("Property Type", sorted(df['property_type'].unique()))
+    df_st = df[(df['small_area']==sub) & (df['property_type']==ptype)]
     if not df_st.empty:
-        chart_type = st.radio("Chart Type", ["Line","Bar","Area"], horizontal=True)
+        ct = st.radio("Chart Type", ["Line","Bar","Area"], horizontal=True)
         base = alt.Chart(df_st).encode(x='sale_year:O', y='median_price:Q')
-        chart = base.mark_line(point=True) if chart_type=='Line' else base.mark_bar() if chart_type=='Bar' else base.mark_area(opacity=0.5)
-        st.altair_chart(chart.properties(width=700,height=350), use_container_width=True)
+        chart = base.mark_line(point=True) if ct=='Line' else base.mark_bar() if ct=='Bar' else base.mark_area(opacity=0.5)
+        st.altair_chart(chart.properties(width=700, height=350), use_container_width=True)
     else:
         st.warning("No data for selection.")
 
 with tab3:
     st.subheader("📍 Price Heatmap")
-    m = folium.Map(location=[mid_lat, mid_lon], zoom_start=12)
-    hdata = filtered[['latitude','longitude','median_price']].dropna()
-    hdata['intensity'] = (hdata['median_price'] - hdata['median_price'].min()) / (hdata['median_price'].max() - hdata['median_price'].min())
-    HeatMap(hdata[['latitude','longitude','intensity']].values.tolist(), radius=15).add_to(m)
-    st_folium(m, width=700, height=500)
+    if not FOLIUM_AVAILABLE:
+        st.error("Folium not installed; heatmap unavailable.")
+    else:
+        midpoint = (df['latitude'].mean(), df['longitude'].mean())
+        m = folium.Map(location=midpoint, zoom_start=12)
+        hdata = df[['latitude','longitude','median_price']].dropna()
+        hdata['i'] = (hdata['median_price'] - hdata['median_price'].min()) / (hdata['median_price'].max()-hdata['median_price'].min())
+        HeatMap(hdata[['latitude','longitude','i']].values.tolist(), radius=15).add_to(m)
+        st_folium(m, width=700, height=500)
 
 with tab4:
     st.subheader("📋 Interactive Data Table")
-    edited = st.data_editor(
-        filtered,
-        num_rows="dynamic",
-        use_container_width=True
-    )
-    csv = filtered.to_csv(index=False).encode('utf-8')
+    edited = st.data_editor(df, num_rows="dynamic", use_container_width=True)
+    csv = df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, "filtered_house_prices.csv", mime='text/csv')
 
 st.markdown("---")
 st.write("*Data source: City of Melbourne Open Data Portal*.")
-
