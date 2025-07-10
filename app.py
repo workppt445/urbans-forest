@@ -18,13 +18,21 @@ import json, os
 st.set_page_config(page_title="Melbourne House Price Explorer", layout="wide", initial_sidebar_state="expanded")
 
 # Load datasets
+DATA_DIR = "data"
+
 def load_data():
-    prices = pd.read_csv(
-        "house-prices-by-small-area-sale-year.csv"
-    ).rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
-    dwell = pd.read_csv(
-        "city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv"
-    ).rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
+    prices_path = os.path.join(DATA_DIR, "house-prices-by-small-area-sale-year.csv")
+    dwell_path = os.path.join(DATA_DIR, "city-of-melbourne-dwellings-and-household-forecasts-by-small-area-2020-2040.csv")
+    try:
+        prices = pd.read_csv(prices_path).rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
+    except FileNotFoundError:
+        st.error(f"Price data file not found: {prices_path}")
+        return pd.DataFrame(), pd.DataFrame()
+    try:
+        dwell = pd.read_csv(dwell_path).rename(columns=lambda c: c.strip().lower().replace(' ', '_'))
+    except FileNotFoundError:
+        st.error(f"Dwellings data file not found: {dwell_path}")
+        dwell = pd.DataFrame()
     if 'type' in prices.columns:
         prices = prices.rename(columns={'type': 'property_type'})
     prices['latitude'] = prices.get('latitude', -37.8136)
@@ -130,4 +138,3 @@ with tab4:
 
 st.markdown("---")
 st.write("*Data source: City of Melbourne Open Data Portal*.")
-
