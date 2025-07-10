@@ -27,7 +27,17 @@ def random_color():
 # Theme toggle
 theme = st.sidebar.radio("Theme:", ["Light","Dark"], index=0)
 if theme == "Dark":
-    st.markdown("<style>body{background-color:#111; color:#eee;}</style>", unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+        body {
+            background-color: #111 !important;
+            color: #eee !important;
+        }
+        .stApp {
+            background-color: #111 !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
 # Header with icon
 col1, col2 = st.columns([4,1])
@@ -50,8 +60,11 @@ with st.sidebar.expander("Filters & Secret Pin", expanded=True):
 
     pin = st.text_input("🔒 Secret Pin", type="password")
     if pin:
-        if pin == '7477': st.balloons(); st.success("Secret Unlocked!")
-        else: st.error("Incorrect Pin")
+        if pin == '7477':
+            st.balloons()
+            st.success("Secret Unlocked!")
+        else:
+            st.error("Incorrect Pin")
 
 # Filter data
 df = data[
@@ -72,29 +85,35 @@ with tab1:
     c3.metric("Avg per Species", f"{avg_per:.1f}")
 
 with tab2:
-    counts = df['Common Name'].value_counts().reset_index()
-    counts.columns = ['Common Name','Count']
-    counts['Percent'] = (counts['Count']/total*100).round(1)
-    colors = [random_color() for _ in counts.index]
-    chart_type = st.selectbox("Chart Type", ["Bar","Pie","Line"], key="ct2")
-    if chart_type == 'Bar':
-        fig = px.bar(counts, x='Common Name', y='Count', text='Percent', title="Species Distribution")
-        fig.update_traces(marker_color=colors, texttemplate='%{text}%')
-    elif chart_type == 'Pie':
-        fig = px.pie(counts, names='Common Name', values='Count', hole=0.3, title="Species Share", color_discrete_sequence=colors)
+    if not df.empty:
+        counts = df['Common Name'].value_counts().reset_index()
+        counts.columns = ['Common Name','Count']
+        counts['Percent'] = (counts['Count']/total*100).round(1)
+        colors = [random_color() for _ in counts.index]
+        chart_type = st.selectbox("Chart Type", ["Bar","Pie","Line"], key="ct2")
+        if chart_type == 'Bar':
+            fig = px.bar(counts, x='Common Name', y='Count', text='Percent', title="Species Distribution")
+            fig.update_traces(marker_color=colors, texttemplate='%{text}%')
+        elif chart_type == 'Pie':
+            fig = px.pie(counts, names='Common Name', values='Count', hole=0.3, title="Species Share", color_discrete_sequence=colors)
+        else:
+            fig = px.line(counts, x='Common Name', y='Count', markers=True, title="Trend by Species")
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        fig = px.line(counts, x='Common Name', y='Count', markers=True, title="Trend by Species")
-    st.plotly_chart(fig, use_container_width=True)
+        st.warning("No data available to chart.")
 
 with tab3:
     if {'Latitude','Longitude'}.issubset(df.columns):
         map_data = df.dropna(subset=['Latitude','Longitude'])
-        fig_map = px.scatter_mapbox(map_data, lat='Latitude', lon='Longitude', hover_name='Common Name', 
-                                    zoom=11, height=500, color='Common Name', size_max=10)
-        fig_map.update_layout(mapbox_style='open-street-map', margin=dict(l=0,r=0,t=0,b=0))
-        st.plotly_chart(fig_map, use_container_width=True)
+        if not map_data.empty:
+            fig_map = px.scatter_mapbox(map_data, lat='Latitude', lon='Longitude', hover_name='Common Name', 
+                                        zoom=11, height=500, color='Common Name', size_max=10)
+            fig_map.update_layout(mapbox_style='open-street-map', margin=dict(l=0,r=0,t=0,b=0))
+            st.plotly_chart(fig_map, use_container_width=True)
+        else:
+            st.warning("Filtered data has no coordinate information.")
     else:
-        st.warning("No coordinate data.")
+        st.warning("No coordinate data available in dataset.")
 
 with tab4:
     st.dataframe(df, use_container_width=True)
