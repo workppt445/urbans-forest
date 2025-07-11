@@ -85,7 +85,15 @@ with t3:
     if 'latitude' in df.columns and 'longitude' in df.columns:
         map_df = df.dropna(subset=['latitude','longitude'])
         if not map_df.empty:
-            fig_map = px.scatter_mapbox(map_df, lat='latitude', lon='longitude', hover_name='common_name', hover_data={'year_planted':True, 'height_m':True}, zoom=10, height=500)
+            fig_map = px.scatter_mapbox(
+                map_df,
+                lat='latitude',
+                lon='longitude',
+                hover_name='common_name',
+                hover_data=['year_planted', 'height_m'],
+                zoom=10,
+                height=500
+            )
             fig_map.update_layout(mapbox_style='open-street-map', margin={'r':0,'t':0,'l':0,'b':0})
             st.plotly_chart(fig_map, use_container_width=True)
         else:
