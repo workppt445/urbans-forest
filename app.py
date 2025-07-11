@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import pydeck as pdk
 import random
 import os
 from PIL import Image
@@ -17,90 +16,110 @@ st.set_page_config(
 def load_tree_data(path="trees-with-species-and-dimensions-urban-forest.xlsx"):
     df = pd.read_excel(path)
     df.columns = df.columns.str.strip().str.replace(' ', '_').str.lower()
-    df['year_planted'] = pd.to_numeric(df['year_planted'], errors='coerce')
-    return df.dropna(subset=['common_name','year_planted'])
+    df['year_planted'] = pd.to_numeric(df.get('year_planted', None), errors='coerce')
+    if 'height_m' in df.columns:
+        df['height_m'] = pd.to_numeric(df['height_m'], errors='coerce')
+    return df.dropna(subset=['common_name', 'year_planted'])
 
 data = load_tree_data()
+
+# Utility
 
 def random_color():
     return f'rgb({random.randint(50,200)},{random.randint(100,255)},{random.randint(50,200)})'
 
-# Theme toggle
-theme = st.sidebar.selectbox("Theme", ["Light","Dark"])
-if theme == "Dark": st.markdown("<style>body{background:#111;color:#eee;}</style>",unsafe_allow_html=True)
-
-# Filters sidebar
+# Sidebar Filters
 st.sidebar.header("Filters & Secret Pin")
-search = st.sidebar.text_input("🔍 Search species")
+search = st.sidebar.text_input("🔍 Search Species")
 species = sorted(data['common_name'].unique())
 choices = [s for s in species if search.lower() in s.lower()]
-sel = st.sidebar.multiselect("Species", choices, default=choices[:5])
-ymin, ymax = st.sidebar.slider("Year Planted Range",
-    int(data['year_planted'].min()),int(data['year_planted'].max()),
-    (int(data['year_planted'].min()),int(data['year_planted'].max()))
+if not choices:
+    choices = species
+sel = st.sidebar.multiselect("Species", species, default=species)
+ymin, ymax = st.sidebar.slider(
+    "Year Planted Range",
+    int(data['year_planted'].min()),
+    int(data['year_planted'].max()),
+    (int(data['year_planted'].min()), int(data['year_planted'].max()))
 )
+hmin, hmax = None, None
 if 'height_m' in data.columns:
-    hmin, hmax = st.sidebar.slider("Height (m) Range",float(data['height_m'].min()),float(data['height_m'].max()),
-        (float(data['height_m'].min()),float(data['height_m'].max())))
-else:
-    hmin,hmax = None,None
-pin = st.sidebar.text_input("🔒 Secret Pin",type="password")
+    hmin, hmax = st.sidebar.slider(
+        "Height (m) Range",
+        float(data['height_m'].min()),
+        float(data['height_m'].max()),
+        (float(data['height_m'].min()), float(data['height_m'].max()))
+    )
+pin = st.sidebar.text_input("🔒 Secret Pin", type="password")
 if pin:
-    if pin=='7477': st.sidebar.success("🔓 Unlocked!"), st.balloons()
-    else: st.sidebar.error("❌ Wrong pin")
+    if pin == '7477':
+        st.sidebar.success("🔓 Unlocked!"), st.balloons()
+    else:
+        st.sidebar.error("❌ Wrong pin")
 
-# Filter data
-df = data[data['common_name'].isin(sel)&data['year_planted'].between(ymin,ymax)]
-if hmin is not None: df = df[df['height_m'].between(hmin,hmax)]
+# Apply filters
+df = data[data['common_name'].isin(sel) & data['year_planted'].between(ymin, ymax)]
+if hmin is not None:
+    df = df[df['height_m'].between(hmin, hmax)]
 
 # Header
-col1,col2=st.columns([4,1])
-with col1:
-    st.title("🌳 Fun Urban Forest Explorer")
-    st.markdown("Explore Melbourne's urban canopy: stats, charts, maps, and data.")
-with col2:
-    icon='forest_icon.png'
-    if os.path.exists(icon): st.image(Image.open(icon),width=64)
-
-# Tabs
-t1,t2,t3,t4,t5 = st.tabs(["Overview","Charts","Map","Distribution","Data"])
+t1, t2, t3, t4, t5 = st.tabs(["Overview", "Species Counts", "Map View", "Distributions", "Data Table"])
 
 with t1:
-    total=len(df); uniq=df['common_name'].nunique()
-    avg_h=df['height_m'].mean() if 'height_m' in df else 0
-    c1,c2,c3=st.columns(3)
-    c1.metric("Total Trees",total)
-    c2.metric("Unique Species",uniq)
-    c3.metric("Avg Height (m)",f"{avg_h:.1f}")
-    if 'dbh_mm' in df.columns:
-        avg_dbh=df['dbh_mm'].mean()
-        st.metric("Avg DBH (mm)",f"{avg_dbh:.0f}")
+    total = len(df)
+    uniq = df['common_name'].nunique()
+    avg_h = df['height_m'].mean() if 'height_m' in df.columns else None
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Trees", total)
+    c2.metric("Species Count", uniq)
+    if avg_h is not None:
+        c3.metric("Avg Height (m)", f"{avg_h:.1f}")
 
 with t2:
     cnt = df['common_name'].value_counts().reset_index()
-    cnt.columns=['common_name','count']
-    cnt['color'] = [random_color() for _ in cnt['count']]
-    fig=px.bar(cnt,x='common_name',y='count',color='common_name',text='count',title="Species Counts")
-    fig.update_traces(marker_color=cnt['color'],showlegend=False)
-    st.plotly_chart(fig)
+    cnt.columns = ['common_name', 'count']
+    cnt['percent'] = (cnt['count'] / total * 100).round(1)
+    cnt = cnt.sort_values('count', ascending=False)
+    colors = [random_color() for _ in cnt['count']]
+    fig = px.bar(
+        cnt, x='common_name', y='count', text='count', labels={'common_name':'Species','count':'Count'},
+        title="Tree Species Frequencies"
+    )
+    fig.update_traces(marker_color=colors, texttemplate='%{text}', textposition='outside')
+    fig.update_layout(xaxis_tickangle=-45, uniformtext_minsize=8)
+    st.plotly_chart(fig, use_container_width=True)
 
 with t3:
+    st.subheader("Interactive Map")
     if 'latitude' in df.columns and 'longitude' in df.columns:
-        view=pdk.ViewState(latitude=df['latitude'].mean(),longitude=df['longitude'].mean(),zoom=11)
-        layer=pdk.Layer('ScatterplotLayer',data=df,get_position='[longitude,latitude]',get_fill_color='[0,200,100,160]',get_radius=50,pickable=True)
-        st.pydeck_chart(pdk.Deck(map_style='mapbox://styles/mapbox/light-v9',layers=[layer],initial_view_state=view,tooltip={'text':'{common_name}\nHeight: {height_m} m'}))
+        map_df = df.dropna(subset=['latitude', 'longitude'])
+        fig_map = px.scatter_mapbox(
+            map_df, lat='latitude', lon='longitude', hover_name='common_name',
+            hover_data={'year_planted':True,'height_m':True},
+            color='common_name', zoom=11, height=500,
+            color_discrete_sequence=cnt['percent'].apply(lambda x: random_color()).tolist()
+        )
+        fig_map.update_layout(mapbox_style='open-street-map', legend=dict(title='Species'))
+        st.plotly_chart(fig_map, use_container_width=True)
     else:
-        st.warning("No coordinate data")
+        st.warning("Coordinate data missing for map.")
 
 with t4:
-    fig1=px.histogram(df,x='year_planted',nbins=20,title="Planting Year Distribution")
-    fig2=px.box(df,x='common_name',y='height_m',title="Height by Species") if 'height_m' in df else None
-    st.plotly_chart(fig1)
-    if fig2: st.plotly_chart(fig2)
+    st.subheader("Planting Year Distribution")
+    fig_hist = px.histogram(df, x='year_planted', nbins=20,
+                            labels={'year_planted':'Year Planted'}, title="Year Planted Distribution")
+    st.plotly_chart(fig_hist, use_container_width=True)
+    if 'height_m' in df.columns:
+        st.subheader("Height Distribution by Species")
+        fig_box = px.box(df, x='common_name', y='height_m',
+                         labels={'common_name':'Species','height_m':'Height (m)'},
+                         title="Height by Species")
+        st.plotly_chart(fig_box, use_container_width=True)
 
 with t5:
-    st.data_editor(df,num_rows='dynamic')
-    csv=df.to_csv(index=False).encode()
-    st.download_button("Download CSV",csv,"trees.csv",mime='text/csv')
+    st.subheader("Data Table")
+    editor = st.data_editor(df, num_rows='dynamic', use_container_width=True)
+    csv = df.to_csv(index=False).encode()
+    st.download_button("Download CSV", csv, "trees_filtered.csv", mime='text/csv')
 
 st.caption("*Built with Streamlit & Plotly* 🌿")
