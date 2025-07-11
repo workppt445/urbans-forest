@@ -82,15 +82,18 @@ with t2:
 
 with t3:
     st.subheader("Interactive Map")
-    if 'latitude' in df.columns and 'longitude' in df.columns:
+    if {'latitude', 'longitude'}.issubset(df.columns):
         map_df = df.dropna(subset=['latitude','longitude'])
         if not map_df.empty:
             fig_map = px.scatter_mapbox(
                 map_df,
                 lat='latitude',
                 lon='longitude',
-                hover_name='common_name',
-                hover_data=['year_planted', 'height_m'],
+                hover_name='common_name' if 'common_name' in map_df.columns else None,
+                hover_data={
+                    'year_planted': True if 'year_planted' in map_df.columns else False,
+                    'height_m': True if 'height_m' in map_df.columns else False
+                },
                 zoom=10,
                 height=500
             )
@@ -114,3 +117,4 @@ with t5:
     st.download_button("Download CSV", csv, "trees.csv", mime='text/csv')
 
 st.caption("*Built with Streamlit & Plotly* 🌿")
+
