@@ -13,6 +13,7 @@ st.set_page_config(
 )
 
 @st.cache_data
+
 def load_tree_data(path="trees-with-species-and-dimensions-urban-forest.xlsx"):
     df = pd.read_excel(path)
     df.columns = df.columns.str.strip().str.replace(' ', '_').str.lower()
@@ -30,16 +31,16 @@ def random_color():
 # Sidebar
 st.sidebar.header("Filters & Secret Pin")
 search = st.sidebar.text_input("🔍 Search Species")
-species = sorted(data['common_name'].unique())
+species = sorted(data['common_name'].dropna().unique())
 filtered_species = [s for s in species if search.lower() in s.lower()] or species
-selected = st.sidebar.multiselect("Species", filtered_species, default=species)
+selected = st.sidebar.multiselect("Species", filtered_species, default=filtered_species)
 
 ymin, ymax = st.sidebar.slider(
     "Year Planted Range", int(data['year_planted'].min()), int(data['year_planted'].max()),
     (int(data['year_planted'].min()), int(data['year_planted'].max()))
 )
 hmin, hmax = None, None
-if 'height_m' in data.columns:
+if 'height_m' in data.columns and not data['height_m'].dropna().empty:
     hmin, hmax = st.sidebar.slider(
         "Height (m) Range", float(data['height_m'].min()), float(data['height_m'].max()),
         (float(data['height_m'].min()), float(data['height_m'].max()))
@@ -82,18 +83,15 @@ with t2:
 
 with t3:
     st.subheader("Interactive Map")
-    if {'latitude', 'longitude'}.issubset(df.columns):
+    if 'latitude' in df.columns and 'longitude' in df.columns:
         map_df = df.dropna(subset=['latitude','longitude'])
         if not map_df.empty:
             fig_map = px.scatter_mapbox(
                 map_df,
                 lat='latitude',
                 lon='longitude',
-                hover_name='common_name' if 'common_name' in map_df.columns else None,
-                hover_data={
-                    'year_planted': True if 'year_planted' in map_df.columns else False,
-                    'height_m': True if 'height_m' in map_df.columns else False
-                },
+                hover_name='common_name',
+                hover_data={"year_planted": True, "height_m": True},
                 zoom=10,
                 height=500
             )
@@ -105,11 +103,14 @@ with t3:
         st.warning("Latitude/Longitude columns missing.")
 
 with t4:
-    hist = px.histogram(df, x='year_planted', nbins=20, labels={'year_planted':'Year Planted'}, title="Planting Year")
-    st.plotly_chart(hist, use_container_width=True)
-    if 'height_m' in df.columns:
-        box = px.box(df, x='common_name', y='height_m', labels={'height_m':'Height (m)'}, title="Height by Species")
-        st.plotly_chart(box, use_container_width=True)
+    if not df.empty:
+        hist = px.histogram(df, x='year_planted', nbins=20, labels={'year_planted':'Year Planted'}, title="Planting Year")
+        st.plotly_chart(hist, use_container_width=True)
+        if 'height_m' in df.columns:
+            box = px.box(df, x='common_name', y='height_m', labels={'height_m':'Height (m)'}, title="Height by Species")
+            st.plotly_chart(box, use_container_width=True)
+    else:
+        st.warning("No data available for plotting.")
 
 with t5:
     st.dataframe(df, use_container_width=True)
